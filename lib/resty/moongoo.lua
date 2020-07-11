@@ -1,4 +1,7 @@
 local cbson = require("cbson")
+local ipairs=ipairs
+local setmetatable=setmetatable
+local string_gsub=string.gsub
 local connection = require("resty.moongoo.connection")
 local database = require("resty.moongoo.database")
 local parse_uri = require("resty.moongoo.utils").parse_uri
@@ -30,24 +33,24 @@ function _M.new(uri)
   local stimeout = conninfo.query.socketTimeoutMS and conninfo.query.socketTimeoutMS or nil
 
   return setmetatable({
-    connection = nil;
-    w = w;
-    wtimeout = wtimeout;
-    journal = journal;
-    stimeout = stimeout;
-    hosts = conninfo.hosts;
-    default_db = conninfo.database;
-    user = conninfo.user or nil;
-    password = conninfo.password or "";
-    auth_algo = auth_algo,
-    ssl = ssl,
-    version = nil
+      connection = nil;
+      w = w;
+      wtimeout = wtimeout;
+      journal = journal;
+      journal = journal;
+      stimeout = stimeout;
+      hosts = conninfo.hosts;
+      default_db = conninfo.database;
+      user = conninfo.user or nil;
+      password = conninfo.password or "";
+      auth_algo = auth_algo,
+      ssl = ssl,
+      version = "4.2.8"   --这里一定要写，否则每次connect会去读取
   }, mt)
 end
 
 function _M._auth(self, protocol)
  if not self.user then return 1 end
-
  if not protocol or protocol < cbson.int(3) or self.auth_algo == "MONGODB-CR" then
    return auth_cr(self:db(self.default_db), self.user, self.password)
  else
@@ -57,76 +60,74 @@ function _M._auth(self, protocol)
 end
 
 function _M.connect(self)
-  if self.connection then return self end
-  local query, err
-  -- foreach host
-  for k, v in ipairs(self.hosts) do
-    -- connect
-    self.connection, err = connection.new(v.host, v.port, self.stimeout)
-    if not self.connection then
-      return nil, err
-    end
-    local status, err = self.connection:connect()
-    if status then
-      if self.ssl then
-        self.connection:handshake()
-      end
-      if not self.version then
-        query = self:db(self.default_db):_cmd({ buildInfo = 1 })
-        if query then
-          self.version = query.version
+    if self.connection then return self end
+    local query, err
+    -- foreach host
+    for _, v in ipairs(self.hosts) do  --表面上是循环，大部份时候只会执行一次
+        -- connect
+        self.connection, err = connection.new(v.host, v.port, self.stimeout)
+        if not self.connection then
+            return nil, err
         end
-      end
+        local status, err = self.connection:connect()
+        if status then
+            if self.ssl then
+                self.connection:handshake()
+            end
+            if not self.version then
+                query = self:db(self.default_db):_cmd({ buildInfo = 1 })
+                if query then
+                    self.version = query.version
+                end
+            end
 
-      local ismaster = self:db("admin"):_cmd("ismaster")
-      if ismaster and ismaster.ismaster then
-        -- auth
-        local r, err = self:_auth(ismaster.maxWireVersion)
-        if not r then
-          return nil, err
-        end
-        return self
-      else
-        -- try to connect to master
-        if ismaster.primary then
-          local mhost, mport
-          string.gsub(ismaster.primary, "([^:]+):([^:]+)", function(host,port) mhost=host; mport=port end)
-          self.connection:close()
-          self.connection = nil
-          self.connection, err = connection.new(mhost, mport, self.stimeout)
-          if not self.connection then
-            return nil, err
-          end
-          local status, err = self.connection:connect()
-          if not status then
-            return nil, err
-          end
-          if self.ssl then
-            self.connection:handshake()
-          end
-          if not self.version then
-            query = self:db(self.default_db):_cmd({ buildInfo = 1 })
-            if query then
-              self.version = query.version
+            if self.connection:get_reused_times()==0 then
+                local check_master = self:db("admin"):_cmd("ismaster")  --检查当前节点是否主
+                if check_master and check_master.ismaster then
+                    -- auth
+                    local r, err = self:_auth(check_master.maxWireVersion)
+                    if not r then
+                        return nil, err
+                    end
+                    return self
+                else
+                    -- try to connect to master
+                    if check_master.primary then  --primary是一个 ip:host格式，指示本集群中的主节点
+                        local mhost, mport
+                        string_gsub(check_master.primary, "([^:]+):([^:]+)", function(host,port) mhost=host; mport=port end)
+                        self.connection.sock:close() --强制关闭socket
+                        self.connection = nil
+                        self.connection, err = connection.new(mhost, mport, self.stimeout)  --使用主节点配置
+                        if not self.connection then
+                            return nil, err
+                        end
+                        local status, err = self.connection:connect()
+                        if not status then
+                            return nil, err
+                        end
+                        if self.ssl then
+                            self.connection:handshake()
+                        end
+                        if self.connection:get_reused_times()==0 then
+                            local r, err = self:_auth(check_master.maxWireVersion)
+                            if not r then
+                                return nil, err
+                            end
+                            return self
+                        end
+                    end
+                end
+            else
+--                print("==================================reuse socket")
+                return self
             end
-          end
-          local ismaster = self:db("admin"):_cmd("ismaster")
-          if ismaster and ismaster.ismaster then
-            -- auth
-            local r, err = self:_auth(ismaster.maxWireVersion)
-            if not r then
-              return nil, err
-            end
-            return self
-          else
-            return nil, "Can't connect to master server"
-          end
+
         end
-      end
     end
-  end
-  return nil, "Can't connect to any of servers"
+    return nil, "Can't connect to any of servers"
 end
+
+
 
 function _M.close(self)
   if self.connection then
@@ -140,7 +141,7 @@ function _M.get_reused_times(self)
 end
 
 function _M.db(self, dbname)
-  return database.new(dbname, self)
+    return database.new(dbname, self)
 end
 
 return _M

@@ -1,5 +1,13 @@
 local socket = ngx and ngx.socket.tcp or require("socket").tcp
 local cbson = require("cbson")
+local string_sub=string.sub
+local tostring,tonumber=tostring,tonumber
+local setmetatable=setmetatable
+local ngx=ngx
+local ipairs,assert=ipairs,assert
+local table_insert=table.insert
+local table_concat=table.concat
+
 
 local opcodes = {
   OP_REPLY = 1;
@@ -50,7 +58,7 @@ end
 
 function _M.close(self)
   if ngx then
-    self.sock:setkeepalive()
+    self.sock:setkeepalive(60000,100)
   else
     self.sock:close()
   end
@@ -77,40 +85,39 @@ function _M.receive(self, pat)
 end
 
 function _M._handle_reply(self)
-    local header = assert ( self.sock:receive ( 16 ) )
+  local header = assert ( self.sock:receive ( 16 ) )
 
-    local length = cbson.raw_to_uint( string.sub(header , 1 , 4 ))
-    local r_id = cbson.raw_to_uint( string.sub(header , 5 , 8 ))
-    local r_to = cbson.raw_to_uint( string.sub(header , 9 , 12 ))
-    local opcode = cbson.raw_to_uint( string.sub(header , 13 , 16 ))
+  local length = cbson.raw_to_uint( string_sub(header , 1 , 4 ))
+  local r_id = cbson.raw_to_uint( string_sub(header , 5 , 8 ))
+  local r_to = cbson.raw_to_uint( string_sub(header , 9 , 12 ))
+  local opcode = cbson.raw_to_uint( string_sub(header , 13 , 16 ))
 
-    assert ( opcode == cbson.uint(opcodes.OP_REPLY ) )
-    assert ( r_to == cbson.uint(self._id) )
 
-    local data = assert ( self.sock:receive ( tostring(length-16 ) ) )
+  assert ( opcode == cbson.uint(opcodes.OP_REPLY ) )
+  assert ( r_to == cbson.uint(self._id) )
 
-    local flags = cbson.raw_to_uint( string.sub(data , 1 , 4 ))
-    local cursor_id = cbson.raw_to_uint( string.sub(data , 5 , 12 ))
-    local from = cbson.raw_to_uint( string.sub(data , 13 , 16 ))
-    local number = tonumber(tostring(cbson.raw_to_uint( string.sub(data , 17 , 20 ))))
+  local data = assert ( self.sock:receive ( tostring(length-16 ) ) )
 
-    local docs = string.sub(data , 21)
+  local flags = cbson.raw_to_uint( string_sub(data , 1 , 4 ))
+  local cursor_id = cbson.raw_to_uint( string_sub(data , 5 , 12 ))
+  local from = cbson.raw_to_uint( string_sub(data , 13 , 16 ))
+  local number = tonumber(tostring(cbson.raw_to_uint( string_sub(data , 17 , 20 ))))
 
-    local pos = 1
-    local index = 0
-    local r_docs = {}
-    while index < number do
-      local bson_size = tonumber(tostring(cbson.raw_to_uint(docs:sub(pos, pos+3))))
+  local docs = string_sub(data , 21)
+  local pos = 1
+  local index = 0
+  local r_docs = {}
+  while index < number do
+    local bson_size = tonumber(tostring(cbson.raw_to_uint(docs:sub(pos, pos+3))))
 
-      local dt = docs:sub(pos,pos+bson_size-1)  -- get bson data according to size
+    local dt = docs:sub(pos,pos+bson_size-1)  -- get bson data according to size
 
-      table.insert(r_docs, cbson.decode(dt))
+    table_insert(r_docs, cbson.decode(dt))
 
-      pos = pos + bson_size
-      index = index + 1
-    end
-
-    return flags, cursor_id, from, number, r_docs
+    pos = pos + bson_size
+    index = index + 1
+  end
+  return flags, cursor_id, from, number, r_docs
 end
 
 function _M._build_header(self, op, payload_size)
@@ -122,6 +129,8 @@ function _M._build_header(self, op, payload_size)
   return size .. id .. reply_to .. op
 end
 
+
+
 function _M._query(self, collection, query, to_skip, to_return, selector, flags)
   local flags = {
     tailable = flags and flags.tailable and 1 or 0,
@@ -130,6 +139,7 @@ function _M._query(self, collection, query, to_skip, to_return, selector, flags)
     await = flags and flags.await and 1 or 0,
     exhaust = flags and flags.exhaust and 1 or 0,
     partial = flags and flags.partial and 1 or 0
+
   }
 
   local flagset = cbson.int_to_raw(
@@ -147,13 +157,11 @@ function _M._query(self, collection, query, to_skip, to_return, selector, flags)
 
   local to_skip = cbson.int_to_raw(cbson.int(to_skip), 4)
   local to_return = cbson.int_to_raw(cbson.int(to_return), 4)
-
   local size = 4 + #collection + 1 + 4 + 4 + #query + #selector
 
   local header = self:_build_header(opcodes["OP_QUERY"], size)
 
   local data = header .. flagset .. collection .. "\0" .. to_skip .. to_return .. query .. selector
-
   assert(self:send(data))
   return self:_handle_reply()
 end
@@ -163,8 +171,7 @@ function _M._insert(self, collection, docs, flags)
   for k, doc in ipairs(docs) do
     encoded_docs[k] = cbson.encode(doc)
   end
-  string_docs = table.concat(encoded_docs)
-
+  local string_docs = table_concat(encoded_docs)
   local flags = {
     continue_on_error = flags and flags.continue_on_error and 1 or 0
   }
@@ -173,15 +180,12 @@ function _M._insert(self, collection, docs, flags)
     cbson.int(
       2 * flags["continue_on_error"]
     ),
-  4)
+    4)
 
   local size = 4 + 1 + #collection + #string_docs
   local header = self:_build_header(opcodes["OP_INSERT"], size)
-
   local data = header .. flagset .. collection .. "\0" .. string_docs
-
   assert(self:send(data))
-
   return true -- Mongo doesn't send a reply
 end
 

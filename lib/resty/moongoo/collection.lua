@@ -1,6 +1,13 @@
 local cbson = require("cbson")
+local string_sub=string.sub
+local tostring,tonumber=tostring,tonumber
 local generate_oid = require("resty.moongoo.utils").generate_oid
 local cursor = require("resty.moongoo.cursor")
+local table_insert=table.insert
+local string_gsub=string.gsub
+local ipairs,pairs=ipairs,pairs
+local setmetatable=setmetatable
+local table_concat=table.concat
 
 local _M = {}
 
@@ -66,7 +73,7 @@ local function ensure_oids(docs)
     if not docs[k]._id then
       docs[k]._id = cbson.oid(generate_oid())
     end
-    table.insert(ids, docs[k]._id)
+    table_insert(ids, docs[k]._id)
   end
   return docs, ids
 end
@@ -77,14 +84,16 @@ local function build_index_names(docs)
     if not v.name then
       local name = {}
       for n, d in pairs(v.key) do
-        table.insert(name, n)
+        table_insert(name, n)
       end
-      name = table.concat(name, '_')
+      name = table_concat(name, '_')
       docs[k].name = name
     end
   end
   return docs
 end
+
+
 
 function _M.insert(self, docs)
   -- ensure we have oids
@@ -94,28 +103,25 @@ function _M.insert(self, docs)
     docs = newdocs
   end
   local docs, ids = ensure_oids(docs)
-
   self._db._moongoo:connect()
-
-  local server_version = tonumber(string.sub(string.gsub(self._db._moongoo.version, "(%D)", ""), 1, 3))
-
+--  local server_version = tonumber(string_sub(string_gsub(self._db._moongoo.version, "(%D)", ""), 1, 3))
+  local server_version=200  --强制设置小。真实的是428
   if server_version < 254 then
     self._db:insert(self:full_name(), docs)
-    return self:_check_last_error(ids)
+    return true
+--    return self:_check_last_error(ids)  --不做检查了 .cxt update
   else
     local doc, err = self._db:cmd(
       { insert = self.name },
       {
         documents = docs,
-        ordered = true,
+        ordered = false,
         writeConcern = self:_build_write_concern()
       }
     )
-
     if not doc then
       return nil, err
     end
-
     return check_write_concern(doc, ids, doc.n)
   end
 end
