@@ -1,26 +1,28 @@
+
+local string_gmatch=string.gmatch
+local string_sub=string.sub
+local tostring,tonumber=tostring,tonumber
 local Hi = require("resty.moongoo.utils").pbkdf2_hmac_sha1
 local saslprep = require("resty.moongoo.utils").saslprep
 local pass_digest = require("resty.moongoo.utils").pass_digest
 local xor_bytestr = require("resty.moongoo.utils").xor_bytestr
-
 local b64 = ngx and ngx.encode_base64 or require("mime").b64
 local unb64 = ngx and ngx.decode_base64 or require("mime").unb64
-
 local hmac_sha1 = ngx and ngx.hmac_sha1 or function(str, key) return require("crypto").hmac.digest("sha1", key, str, true) end
 local sha1_bin = ngx and ngx.sha1_bin or function(str) return require("crypto").digest("sha1", str, true) end
-
+local math_random=math.random
 local cbson = require("cbson")
 
 
 local function auth(db, username, password)
   local username = saslprep(username)
-  local c_nonce = b64(string.sub(tostring(math.random()), 3 , 14))
+  local c_nonce = b64(string_sub(tostring(math_random()), 3 , 14))
 
   local first_bare = "n="  .. username .. ",r="  .. c_nonce
 
   local sasl_start_payload = b64("n,," .. first_bare)
     
-  r, err = db:_cmd("saslStart", {
+  local r, err = db:_cmd("saslStart", {
     mechanism = "SCRAM-SHA-1" ;
     autoAuthorize = 1 ;
     payload =  cbson.binary(sasl_start_payload);
@@ -35,7 +37,7 @@ local function auth(db, username, password)
   local server_first = r['payload']:raw()
 
   local parsed_t = {}
-  for k, v in string.gmatch(server_first, "(%w+)=([^,]*)") do
+  for k, v in string_gmatch(server_first, "(%w+)=([^,]*)") do
     parsed_t[k] = v
   end
 
@@ -43,7 +45,7 @@ local function auth(db, username, password)
   local salt = parsed_t['s']
   local s_nonce = parsed_t['r']
 
-  if not string.sub(s_nonce, 1, 12) == c_nonce then
+  if not string_sub(s_nonce, 1, 12) == c_nonce then
     return nil, 'Server returned an invalid nonce.'
   end
 
@@ -73,7 +75,7 @@ local function auth(db, username, password)
 
   local parsed_s = r['payload']:raw()
   parsed_t = {}
-  for k, v in string.gmatch(parsed_s, "(%w+)=([^,]*)") do
+  for k, v in string_gmatch(parsed_s, "(%w+)=([^,]*)") do
     parsed_t[k] = v
   end
   if parsed_t['v'] ~= server_sig then
