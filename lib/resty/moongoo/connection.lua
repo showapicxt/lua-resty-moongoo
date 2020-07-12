@@ -56,8 +56,10 @@ function _M.handshake(self)
   end
 end
 
-function _M.close(self)
+function _M.close(self,max_idle_timeout,pool_size)
   if ngx then
+    max_idle_timeout=max_idle_timeout or 60000
+    pool_size=pool_size or 100
     self.sock:setkeepalive(60000,100)
   else
     self.sock:close()

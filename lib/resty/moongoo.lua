@@ -87,6 +87,7 @@ function _M.connect(self)
                     -- auth
                     local r, err = self:_auth(check_master.maxWireVersion)
                     if not r then
+                        print(err)
                         return nil, err
                     end
                     return self
@@ -129,9 +130,9 @@ end
 
 
 
-function _M.close(self)
+function _M.close(self,max_idle_timeout,pool_size)
   if self.connection then
-    self.connection:close()
+    self.connection:close(max_idle_timeout,pool_size)
     self.connection = nil
   end
 end

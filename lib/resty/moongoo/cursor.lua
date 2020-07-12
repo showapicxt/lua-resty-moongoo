@@ -1,9 +1,14 @@
 local cbson = require("cbson")
 local bit = require("bit")
-
+local setmetatable=setmetatable
+local tonumber,tostring=tonumber,tostring
+local table_insert=table.insert
+local ipairs=ipairs
+local math_abs=math.abs
+local math_pow=math.pow
 
 local function check_bit(num, bitnum)
-  return bit.band(num,math.pow(2,bitnum)) ~= 0 -- and true or false
+  return bit.band(num,math_pow(2,bitnum)) ~= 0 -- and true or false
 end
 
 local _M = {}
@@ -185,7 +190,7 @@ function _M.all(self)
   while true do
     local doc = self:next()
     if doc == nil then break end
-    table.insert(docs, doc)
+    table_insert(docs, doc)
   end
   return docs
 end
@@ -210,8 +215,7 @@ function _M.count(self)
   if not doc then
     return nil, err
   end
-
-  return doc and doc.n or 0
+  return doc and doc.n:number() or 0
 end
 
 function _M.distinct(self, key)
@@ -236,7 +240,7 @@ end
 function _M.add_batch(self, docs)
   self._started = true
   for k,v in ipairs(docs) do
-    table.insert(self._docs, v)
+    table_insert(self._docs, v)
   end
   return self
 end
@@ -245,7 +249,7 @@ function _M._finished(self)
   if self._limit == 0 then
     return false
   else
-    if self._cnt >= math.abs(self._limit) then
+    if self._cnt >= math_abs(self._limit) then
       return true
     else
       return false
