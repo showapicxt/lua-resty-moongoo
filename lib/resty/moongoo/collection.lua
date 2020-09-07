@@ -209,7 +209,7 @@ function _M.remove(self, query, single)
         return nil, err
     end
 
-    return check_write_concern(doc, doc.n)
+    return check_write_concern(doc, doc.ok)
 end
 
 function _M.stats(self)
