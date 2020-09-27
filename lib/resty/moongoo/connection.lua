@@ -25,7 +25,7 @@ local _M = {}
 
 local mt = { __index = _M }
 
-function _M.new(host, port, timeout)
+function _M.new(host, port, timeout,pool_table)
   local sock = socket()
   if timeout then
     sock:settimeout(timeout)
@@ -35,14 +35,16 @@ function _M.new(host, port, timeout)
     sock = sock;
     host = host;
     port = port;
+    pool_table = pool_table;
     _id = 0;
   }, mt)
 end
 
-function _M.connect(self, host, port)
+function _M.connect(self, host, port,pool_table)  --目前外面没传参进入
   self.host = host or self.host
   self.port = port or self.port
-  return self.sock:connect(self.host, self.port)
+  self.pool_table= pool_table or self.pool_table
+  return self.sock:connect(self.host, self.port,self.pool_table)
 end
 
 function _M.handshake(self)
@@ -60,7 +62,7 @@ function _M.close(self,max_idle_timeout,pool_size)
   if ngx then
     max_idle_timeout=max_idle_timeout or 60000
     pool_size=pool_size or 100
-    self.sock:setkeepalive(60000,100)
+    self.sock:setkeepalive(max_idle_timeout,pool_size)
   else
     self.sock:close()
   end

@@ -17,7 +17,7 @@ _M.NAME = 'Moongoo'
 
 local mt = { __index = _M }
 
-function _M.new(uri)
+function _M.new(uri,pool_table)
   local conninfo = parse_uri(uri)
 
   if not conninfo.scheme or conninfo.scheme ~= "mongodb" then
@@ -30,7 +30,7 @@ function _M.new(uri)
   local journal = conninfo.query and conninfo.query.journal or false
   local ssl = conninfo.query and conninfo.query.ssl or false
 
-  local stimeout = conninfo.query.socketTimeoutMS and conninfo.query.socketTimeoutMS or nil
+  local stimeout = conninfo.query.socketTimeoutMS or nil
 
   return setmetatable({
       connection = nil;
@@ -45,6 +45,7 @@ function _M.new(uri)
       password = conninfo.password or "";
       auth_algo = auth_algo,
       ssl = ssl,
+      pool_table=pool_table,
       version = "4.2.8"   --这里一定要写，否则每次connect会去读取
   }, mt)
 end
@@ -65,7 +66,7 @@ function _M.connect(self)
     -- foreach host
     for _, v in ipairs(self.hosts) do  --表面上是循环，大部份时候只会执行一次
         -- connect
-        self.connection, err = connection.new(v.host, v.port, self.stimeout)
+        self.connection, err = connection.new(v.host, v.port, self.stimeout,self.pool_table)
         if not self.connection then
             return nil, err
         end
@@ -98,7 +99,7 @@ function _M.connect(self)
                         string_gsub(check_master.primary, "([^:]+):([^:]+)", function(host,port) mhost=host; mport=port end)
                         self.connection.sock:close() --强制关闭socket
                         self.connection = nil
-                        self.connection, err = connection.new(mhost, mport, self.stimeout)  --使用主节点配置
+                        self.connection, err = connection.new(mhost, mport, self.stimeout,self.pool_table)  --使用主节点配置
                         if not self.connection then
                             return nil, err
                         end
